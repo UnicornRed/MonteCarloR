@@ -1,0 +1,291 @@
+---
+title: "Monte-Carlo"
+output: html_notebook
+---
+
+# Вычисление интегралов методом Монте-Карло
+
+## Задание 1. Вычисление одномерного интеграла
+
+Задание функции:
+
+```{r}
+func <- function(x){
+  ifelse(x > 0 & x < 1, sin(x - 3.1415 / 3), 0)
+}
+
+n <- 10000
+```
+
+Счёт интеграла встроенной функцией intagrate:
+
+```{r}
+J <- integrate(func, lower = 0, upper = 1)$value
+J
+```
+
+Функция счёта интеграла методом трапеций:
+
+```{r}
+trapezInt <- function(func, step, lower = 0, upper = 1) {
+  backValue <- func(lower)
+  valueInt <- 0
+  
+  for (x in seq(lower + step, upper, step)){
+    valueInt <- valueInt + (backValue + func(x)) / 2 * step
+    backValue <- func(x)
+  }
+  
+  valueInt
+}
+
+step <- 0.001
+trapezInt(func, 0.001, 0, 1)
+```
+
+Функция счёта интеграла методом Монте-Карло:
+
+```{r}
+monteCarloInt <- function(func, prob, samp, dimension = 1){
+  sum <- 0
+  num <- length(samp)
+  list.arg <- list()
+  
+  for (i in 1:dimension){
+    list.arg[[i]] <- samp[seq(i, num, dimension)] 
+  }
+  
+  mean(do.call(func, list.arg) / do.call(prob, list.arg))
+}
+
+monteCarloInt(func, dnorm, rnorm(n), 1)
+```
+
+Строим распределение оценок интегралов:
+
+```{r}
+rJn <- function(n, func, prob, gen_samp, dimension = 1) {
+  replicate(n, monteCarloInt(func, prob, gen_samp(), dimension))
+}
+
+N <- 1000
+sampJn <- rJn(N, func, function(x) dnorm(x), function() rnorm(n), 1)
+hist(sampJn, xlab = "sampJn", main = "")
+```
+
+Получаем доверительный интервал:
+
+```{r}
+confidInterMonteCarlo <- function(func, prob, samp, dimension = 1, gamma = 0.95) {
+  Jn <- monteCarloInt(func, prob, samp, dimension)
+  num <- length(samp)
+  list.arg <- list()
+  
+  for (i in 1:dimension){
+    list.arg[[i]] <- samp[seq(i, num, dimension)] 
+  }
+  
+  v <- sqrt(mean((do.call(func, list.arg) / do.call(prob, list.arg)) ** 2) - Jn ** 2)
+  c(Jn - v * qnorm((gamma + 1) / 2) / sqrt(num / dimension), Jn, Jn + v * qnorm((gamma + 1) / 2) / sqrt(num / dimension))
+}
+
+confInter <- confidInterMonteCarlo(func, function(x) dnorm(x), rnorm(n), 1)
+confInter
+```
+
+Посмотрим, сколько смоделированных оценок выходят за пределы доверительного интервала:
+
+```{r}
+countIn <- 0
+
+for (i in 1:N){
+  confInter <- confidInterMonteCarlo(func, function(x) dnorm(x), rnorm(n), 1)
+  if (J > confInter[1] & J < confInter[3]){
+    countIn <- countIn + 1
+  }
+}
+
+countIn / N
+```
+
+Построим функциональный доверительный интервал:
+
+```{r}
+funcConfidInterMonteCarlo <- function(func, prob, samp, dimension = 1, gamma = 0.95) {
+  Jn <- monteCarloInt(func, prob, samp, dimension)
+  num <- length(samp)
+  list.arg <- list()
+  
+  for (i in 1:dimension){
+    list.arg[[i]] <- samp[seq(i, num, dimension)] 
+  }
+  
+  num <- num / dimension
+  v <- sqrt(mean((do.call(func, list.arg) / do.call(prob, list.arg)) ** 2) - Jn ** 2)
+  c(function(t) Jn - v * qnorm((gamma + 1) / 2) * sqrt(num) * (0.1 + 3.15 * sqrt(t)) / floor(num * t),
+    function(t) Jn + v * qnorm((gamma + 1) / 2) * sqrt(num) * (0.1 + 3.15 * sqrt(t)) / floor(num * t))
+}
+
+samp <- rnorm(n)
+Jn <- monteCarloInt(func, function(x) dnorm(x), samp, 1)
+funcCondInter <- funcConfidInterMonteCarlo(func, function(x) dnorm(x), samp, 1)
+
+plot(n, Jn, xlim = c(0, n), ylim = c(funcCondInter[[1]](0.01), funcCondInter[[2]](0.01)))
+lines(x = n * seq(0.01, 1, 0.01), y = funcCondInter[[1]](seq(0.01, 1, 0.01)))
+lines(x = n * seq(0.01, 1, 0.01), y = funcCondInter[[2]](seq(0.01, 1, 0.01)))
+
+subJn <- c()
+
+for (i in seq(1, n, n / 50)) {
+  subJn <- confidInterMonteCarlo(func, function(x) dnorm(x), samp[1:i], 1)
+  lines(x = rep(i, 3), subJn, type = 'l')
+  points(x = i, subJn[2])
+}
+lines(x = c(0, n), y = c(J, J), col = "red")
+```
+
+Доля оценок, процесс которых попадает в доверительную область:
+
+```{r}
+numJnInInter <- N
+for (i in 1:N) {
+  samp <- rnorm(n)
+  
+  for (t in seq(0.01, 1, 0.01)) {
+    Jnt <- monteCarloInt(func, function(x) dnorm(x), samp[1:(n * t)], 1)
+    if (funcCondInter[[1]](t) > Jnt | funcCondInter[[2]](t) < Jnt) {
+      numJnInInter <- numJnInInter - 1
+      break
+    }
+  }
+}
+
+numJnInInter / N
+```
+
+## Задание 1. Многомерный интеграл. Вариант 22
+
+Введём интегрируемую трёхмерную функцию из варианта 22:
+
+```{r}
+var22 <- function(x, y, z, a = 0, b = 1, c = 1, p = 1){
+  ifelse(x > 0 & y > a & y < b * x & z > 0 & z < c * x, 4 / pi * x ** (-2) * exp(-p * x ** 2 - y ** 2 - z ** 2), 0)
+}
+```
+
+Точное значение:
+
+```{r}
+J.var22 <- 0.8952096
+J.var22
+```
+
+Посчитаем численно интеграл по формуле параллелепипедов:
+
+```{r}
+integrate_cubes_v <- function(func, xlim = c(0, 1), ylim = c(0, 1), zlim = c(0, 1), epsilon = 1e-2){
+  grid <- expand.grid(seq(xlim[1] + epsilon / 2, xlim[2], epsilon), seq(ylim[1] + epsilon / 2, ylim[2], epsilon), seq(zlim[1] + epsilon / 2, zlim[2], epsilon))
+  sum(func(grid[, 1], grid[, 2], grid[, 3])) * (epsilon ** 3)
+}
+
+integrate_cubes <- function(func, xlim = c(0, 1), ylim = c(0, 1), zlim = c(0, 1), epsilon = 1e-2){
+  sum <- 0
+  
+  for (x in seq(xlim[1], xlim[2], epsilon)){
+    for (y in seq(ylim[1], ylim[2], epsilon)){
+      for (z in seq(zlim[1], zlim[2], epsilon)){
+        sum <- sum + func(x + epsilon / 2, y + epsilon / 2, z + epsilon / 2)
+      } 
+    } 
+  }
+  
+  sum * (epsilon ** 3)
+}
+
+integrate_cubes(var22, c(0, 3), c(0, 3), c(0, 3), 0.03)
+integrate_cubes_v(var22, c(0, 3), c(0, 3), c(0, 3), 0.01)
+```
+
+Вычислим "в лоб" интеграл методом Монте-Карло, используя равномерное распределение на $ [0, 3] \times [0, 3] \times [0, 3]$:
+
+```{r}
+n <- 100000
+monteCarloInt(var22, function(x, y, z) 1 / (3 ** 3), runif(3 * n, 0, 3), 3)
+```
+
+Доверительный интервал:
+
+```{r}
+confidInterMonteCarlo(var22, function(x, y, z) 1 / (3 ** 3), runif(3 * n, 0, 3), 3)
+```
+
+
+Преобразуем функцию для интегрирования по единичному кубу:
+
+```{r}
+var22modified <- function(t, u, v, a = 0, b = 1, c = 1, p = 1){
+  x <- log(1 / (1 - t))
+  y <- u * (b * log(1 / (1 - t)) - a) + a
+  z <- v * c * log(1 / (1 - t))
+  
+  ifelse(t > 0 & t < 1 & u > 0 & u < 1 & v > 0 & v < 1, 4 / pi * x ** (-2) * exp(-p * x ** 2 - y ** 2 - z ** 2) * exp(x) * c * x * (b * x - a), 0)
+}
+```
+
+Вычислим интеграл от преобразованной функции, используя равномерное на $ [0, 3] \times [0, 3] \times [0, 3]$:
+
+```{r}
+monteCarloInt(var22modified, function(x, y, z) 1, runif(3 * n, 0, 1), 3)
+```
+
+Доверительный интервал:
+
+```{r}
+confidInterMonteCarlo(var22modified, function(x, y, z) 1, runif(3 * n, 0, 1), 3)
+```
+
+Гистограмма распределения оценок:
+
+```{r}
+sampJn <- rJn(N, var22modified, function(x, y, z) 1, function() runif(3 * n, 0, 1), 3)
+hist(sampJn, xlab = "sampJn", main = "")
+```
+
+Посмотрим, сколько смоделированных оценок выходят за пределы доверительного интервала:
+
+```{r}
+countIn <- 0
+
+for (i in 1:N){
+  confInter <- confidInterMonteCarlo(var22modified, function(x, y, z) 1, runif(3 * n, 0, 1), 3)
+  if (J.var22 > confInter[1] & J.var22 < confInter[3]){
+    countIn <- countIn + 1
+  }
+}
+
+countIn / N
+```
+
+Функциональные доверительные интервалы:
+
+```{r}
+samp <- runif(3 * n, 0, 1)
+Jn <- monteCarloInt(var22modified, function(x, y, z) 1, samp, 3)
+funcCondInter <- funcConfidInterMonteCarlo(var22modified, function(x, y, z) 1, samp, 3)
+
+plot(n, Jn, xlim = c(0, n), ylim = c(funcCondInter[[1]](0.01), funcCondInter[[2]](0.01)))
+lines(x = n * seq(0.01, 1, 0.01), y = funcCondInter[[1]](seq(0.01, 1, 0.01)))
+lines(x = n * seq(0.01, 1, 0.01), y = funcCondInter[[2]](seq(0.01, 1, 0.01)))
+
+subJn <- c()
+
+for (i in seq(1, n, n / 50)) {
+  subJn <- confidInterMonteCarlo(var22modified, function(x, y, z) 1, samp[1:(3 * i)], 3)
+  lines(x = rep(i, 3), subJn, type = 'l')
+  points(x = i, subJn[2])
+}
+lines(x = c(0, n), y = c(J.var22, J.var22), col = "red")
+```
+
+
+
