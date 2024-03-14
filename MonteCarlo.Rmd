@@ -1,5 +1,6 @@
 ---
 title: "Monte-Carlo"
+author: "Олейник Михаил"
 output: html_notebook
 ---
 
